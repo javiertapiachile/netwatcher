@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NetWatch — Monitor de Red</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <div class="logo">
+        <span class="logo-icon">◈</span>
+        <span class="logo-text">NET<strong>WATCH</strong></span>
+        <span class="logo-version">v1.0</span>
+      </div>
+      <div class="status-bar">
+        <span class="status-dot" id="statusDot"></span>
+        <span class="status-text" id="statusText">Iniciando...</span>
+      </div>
+    </div>
+    <div class="header-right">
+      <div class="stat-pill" id="statConnections">
+        <span class="pill-label">CONEXIONES</span>
+        <span class="pill-value" id="connCount">—</span>
+      </div>
+      <div class="stat-pill" id="statIPs">
+        <span class="pill-label">IPs ÚNICAS</span>
+        <span class="pill-value" id="ipCount">—</span>
+      </div>
+      <div class="stat-pill">
+        <span class="pill-label">ÚLTIMO SCAN</span>
+        <span class="pill-value" id="lastScan">—</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Toolbar -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="search-wrap">
+        <span class="search-icon">⌕</span>
+        <input type="text" id="searchInput" class="search-input" placeholder="Filtrar por IP, FQDN, proceso, estado..." />
+      </div>
+      <select id="filterState" class="filter-select">
+        <option value="">Todos los estados</option>
+        <option value="ESTABLISHED">ESTABLISHED</option>
+        <option value="TIME_WAIT">TIME_WAIT</option>
+        <option value="CLOSE_WAIT">CLOSE_WAIT</option>
+        <option value="LISTEN">LISTEN</option>
+        <option value="SYN_SENT">SYN_SENT</option>
+      </select>
+      <select id="filterProto" class="filter-select">
+        <option value="">TCP + UDP</option>
+        <option value="TCP">Solo TCP</option>
+        <option value="UDP">Solo UDP</option>
+      </select>
+    </div>
+    <div class="toolbar-right">
+      <label class="auto-toggle">
+        <input type="checkbox" id="autoRefresh" checked />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">AUTO</span>
+      </label>
+      <select id="refreshInterval" class="filter-select">
+        <option value="3000">3s</option>
+        <option value="5000" selected>5s</option>
+        <option value="10000">10s</option>
+        <option value="30000">30s</option>
+      </select>
+      <button id="btnRefresh" class="btn-refresh">
+        <span class="btn-icon" id="refreshIcon">↻</span> SCAN
+      </button>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <button class="tab active" data-tab="live">CONEXIONES ACTIVAS</button>
+    <button class="tab" data-tab="history">HISTORIAL</button>
+    <button class="tab" data-tab="ips">IPs VISTAS</button>
+  </div>
+
+  <!-- Panel: Conexiones activas -->
+  <div id="tab-live" class="tab-panel active">
+    <div class="table-wrap">
+      <table class="conn-table" id="connTable">
+        <thead>
+          <tr>
+            <th data-sort="protocol">PROTO</th>
+            <th data-sort="localAddr">LOCAL</th>
+            <th data-sort="remoteAddr">REMOTO</th>
+            <th data-sort="dns.fqdn">FQDN / DNS</th>
+            <th data-sort="state">ESTADO</th>
+            <th data-sort="remotePort">PUERTO</th>
+            <th>ACCIONES</th>
+          </tr>
+        </thead>
+        <tbody id="connBody">
+          <tr class="placeholder-row">
+            <td colspan="7">
+              <div class="placeholder">
+                <div class="placeholder-icon">◈</div>
+                <div>Esperando primer scan...</div>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Panel: Historial -->
+  <div id="tab-history" class="tab-panel">
+    <div class="history-controls">
+      <input type="text" id="historyIP" class="search-input" style="max-width:220px" placeholder="Filtrar por IP remota" />
+      <input type="datetime-local" id="historySince" class="filter-select" />
+      <button class="btn-refresh" id="btnHistory">CARGAR</button>
+    </div>
+    <div class="table-wrap">
+      <table class="conn-table" id="histTable">
+        <thead>
+          <tr>
+            <th>TIMESTAMP</th>
+            <th>PROTO</th>
+            <th>LOCAL</th>
+            <th>REMOTO</th>
+            <th>ESTADO</th>
+            <th>PID</th>
+          </tr>
+        </thead>
+        <tbody id="histBody">
+          <tr class="placeholder-row">
+            <td colspan="6">
+              <div class="placeholder"><div>Carga el historial para ver registros anteriores</div></div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Panel: IPs vistas -->
+  <div id="tab-ips" class="tab-panel">
+    <div class="table-wrap">
+      <table class="conn-table" id="ipsTable">
+        <thead>
+          <tr>
+            <th>IP REMOTA</th>
+            <th>FQDN</th>
+            <th>VECES VISTAS</th>
+            <th>ÚLTIMA VEZ</th>
+            <th>TIPO</th>
+            <th>ACCIONES</th>
+          </tr>
+        </thead>
+        <tbody id="ipsBody">
+          <tr class="placeholder-row">
+            <td colspan="6">
+              <div class="placeholder"><div>Cambia a esta pestaña para ver las IPs únicas del historial</div></div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Modal DNS detail -->
+  <div id="dnsModal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <span class="modal-title">◈ Detalle DNS</span>
+        <button class="modal-close" id="modalClose">✕</button>
+      </div>
+      <div class="modal-body" id="modalBody">
+        <!-- filled by JS -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="js/app.js"></script>
+</body>
+</html>

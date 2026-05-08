@@ -1,0 +1,52 @@
+version: '3.9'
+
+services:
+  netwatch:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: netwatch
+    restart: unless-stopped
+
+    # ── Red ──────────────────────────────────────────────────────
+    # network_mode: host permite leer el netstat real del sistema operativo.
+    # En Windows con Docker Desktop, el contenedor corre en una VM Linux (WSL2),
+    # por lo que las conexiones mostradas son las de esa VM.
+    # Para Windows nativo se recomienda correr con node directamente (ver README).
+    network_mode: host
+
+    # ── Variables de entorno ──────────────────────────────────────
+    env_file:
+      - .env
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - HOST=0.0.0.0
+      - DB_PATH=/app/data/netwatch.db
+
+    # ── Volumen persistente para SQLite ──────────────────────────
+    volumes:
+      - netwatch_data:/app/data
+
+    # ── Recursos (previene uso excesivo de CPU/RAM) ───────────────
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 256M
+        reservations:
+          memory: 64M
+
+    # ── Healthcheck ───────────────────────────────────────────────
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/v1/stats"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+
+volumes:
+  netwatch_data:
+    driver: local
+    # En producción corporativa futura, cambiar a un volumen NFS o bind mount
