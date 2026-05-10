@@ -529,3 +529,136 @@ body {
   .search-input  { width: 100%; }
   .toolbar { flex-direction: column; align-items: flex-start; }
 }
+
+/* ── Fase 2: Reputación badges ───────────────────────────────── */
+.rep-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+.rep-CLEAN     { background: rgba(57,255,143,0.10); color: var(--green);  border: 1px solid rgba(57,255,143,0.3); }
+.rep-SUSPICIOUS{ background: rgba(255,209,102,0.10);color: var(--yellow); border: 1px solid rgba(255,209,102,0.3);}
+.rep-MALICIOUS { background: rgba(255,77,106,0.15); color: var(--red);    border: 1px solid rgba(255,77,106,0.4); animation: repPulse 2s ease-in-out infinite; }
+.rep-unknown   { background: var(--bg4); color: var(--text3); border: 1px solid var(--border); }
+
+@keyframes repPulse {
+  0%,100% { box-shadow: 0 0 0 0 rgba(255,77,106,0); }
+  50%      { box-shadow: 0 0 8px 2px rgba(255,77,106,0.3); }
+}
+
+/* ── Fase 2: Servicio badge ──────────────────────────────────── */
+.svc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 0.68rem;
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: var(--text2);
+  white-space: nowrap;
+}
+
+/* ── Fase 2: País ────────────────────────────────────────────── */
+.cell-country {
+  font-size: 0.75rem;
+  color: var(--text2);
+  white-space: nowrap;
+}
+.flag { font-size: 1rem; }
+
+/* ── Fase 2: Mapa ────────────────────────────────────────────── */
+.map-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding: 0 2px;
+}
+.map-legend {
+  display: flex;
+  gap: 20px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  color: var(--text2);
+}
+.legend-dot {
+  width: 10px; height: 10px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* Leaflet dark theme overrides */
+.leaflet-container { background: #0d1117 !important; font-family: var(--font-mono); }
+.leaflet-tile { filter: brightness(0.6) saturate(0.7) hue-rotate(180deg); }
+.leaflet-popup-content-wrapper {
+  background: var(--bg3) !important;
+  border: 1px solid var(--border2) !important;
+  color: var(--text) !important;
+  font-family: var(--font-mono) !important;
+  font-size: 0.75rem !important;
+  border-radius: var(--radius) !important;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5) !important;
+}
+.leaflet-popup-tip { background: var(--bg3) !important; }
+.leaflet-popup-close-button { color: var(--text3) !important; }
+
+/* ── Fase 2: Alertas ─────────────────────────────────────────── */
+.alerts-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.severity-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.sev-critical { background: rgba(255,77,106,0.2);  color: var(--red);    border: 1px solid rgba(255,77,106,0.5); }
+.sev-high     { background: rgba(255,159,64,0.15); color: var(--orange); border: 1px solid rgba(255,159,64,0.4); }
+.sev-medium   { background: rgba(255,209,102,0.10);color: var(--yellow); border: 1px solid rgba(255,209,102,0.3);}
+
+.tab-badge {
+  display: inline-block;
+  background: var(--red);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 8px;
+  margin-left: 4px;
+  vertical-align: middle;
+  animation: blink 1.5s ease-in-out infinite;
+}
+.tab-badge.hidden { display: none; }
+
+.alert-row-unread { background: rgba(255,77,106,0.04); }
+.alert-row-unread:hover { background: rgba(255,77,106,0.08) !important; }
+
+/* Stat pill rojo para alertas */
+#alertPill { transition: border-color 0.3s; }
+#alertPill.has-alerts { border-color: var(--red); }
+#alertPill.has-alerts .pill-value { color: var(--red); }

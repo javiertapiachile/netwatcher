@@ -1,399 +1,441 @@
-// public/js/app.js
-// NetWatch Frontend — Lógica completa de la interfaz
+// public/js/app.js — NetWatch Fase 2
 
 const API = '/api/v1';
 
-// ── Estado de la app ──────────────────────────────────────────
 const state = {
-  connections:     [],
-  filteredConns:   [],
-  refreshTimer:    null,
-  isLoading:       false,
-  sortKey:         'remoteAddr',
-  sortDir:         'asc',
-  activeTab:       'live',
+  connections:   [],
+  refreshTimer:  null,
+  isLoading:     false,
+  sortKey:       'remoteAddr',
+  sortDir:       'asc',
+  activeTab:     'live',
+  map:           null,
+  mapMarkers:    [],
 };
 
-// ── Elementos del DOM ─────────────────────────────────────────
 const $ = id => document.getElementById(id);
-const el = {
-  statusDot:     $('statusDot'),
-  statusText:    $('statusText'),
-  connCount:     $('connCount'),
-  ipCount:       $('ipCount'),
-  lastScan:      $('lastScan'),
-  connBody:      $('connBody'),
-  histBody:      $('histBody'),
-  ipsBody:       $('ipsBody'),
-  searchInput:   $('searchInput'),
-  filterState:   $('filterState'),
-  filterProto:   $('filterProto'),
-  autoRefresh:   $('autoRefresh'),
-  refreshInterval: $('refreshInterval'),
-  btnRefresh:    $('btnRefresh'),
-  refreshIcon:   $('refreshIcon'),
-  btnHistory:    $('btnHistory'),
-  historyIP:     $('historyIP'),
-  historySince:  $('historySince'),
-  dnsModal:      $('dnsModal'),
-  modalBody:     $('modalBody'),
-  modalClose:    $('modalClose'),
-  toast:         $('toast'),
-};
 
-// ── Utilidades ────────────────────────────────────────────────
+// ── Utils ─────────────────────────────────────────────────────
+function formatTime(iso)     { if (!iso) return '—'; return new Date(iso).toLocaleTimeString('es-CL', { hour:'2-digit', minute:'2-digit', second:'2-digit' }); }
+function formatDateTime(iso) { if (!iso) return '—'; return new Date(iso).toLocaleString('es-CL'); }
 
-function formatTime(isoStr) {
-  if (!isoStr) return '—';
-  const d = new Date(isoStr);
-  return d.toLocaleTimeString('es-CL', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+function showToast(msg, type = 'info', ms = 3500) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.className   = `toast ${type}`;
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.add('hidden'), ms);
 }
 
-function formatDateTime(isoStr) {
-  if (!isoStr) return '—';
-  const d = new Date(isoStr);
-  return d.toLocaleString('es-CL');
+function setStatus(s, text) {
+  $('statusDot').className  = `status-dot ${s}`;
+  $('statusText').textContent = text;
 }
 
-function showToast(msg, type = 'info', duration = 3000) {
-  el.toast.textContent = msg;
-  el.toast.className   = `toast ${type}`;
-  clearTimeout(el.toast._timer);
-  el.toast._timer = setTimeout(() => el.toast.classList.add('hidden'), duration);
+function apiFetch(path) {
+  return fetch(`${API}${path}`).then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); });
 }
 
-function setStatus(state, text) {
-  el.statusDot.className  = `status-dot ${state}`;
-  el.statusText.textContent = text;
+// ── Badge builders ────────────────────────────────────────────
+function protoBadge(p) {
+  const c = p === 'TCP' ? 'proto-TCP' : p === 'UDP' ? 'proto-UDP' : '';
+  return `<span class="proto-badge ${c}">${p||'?'}</span>`;
 }
 
-function stateBadge(state) {
-  const cls = [
-    'ESTABLISHED','TIME_WAIT','CLOSE_WAIT','LISTEN','SYN_SENT','STATELESS'
-  ].includes(state) ? `state-${state}` : 'state-default';
-  return `<span class="state-badge ${cls}">${state || 'UNKNOWN'}</span>`;
+function stateBadge(s) {
+  const map = { ESTABLISHED:'state-ESTABLISHED', TIME_WAIT:'state-TIME_WAIT',
+                CLOSE_WAIT:'state-CLOSE_WAIT', LISTEN:'state-LISTEN',
+                SYN_SENT:'state-SYN_SENT', STATELESS:'state-STATELESS' };
+  return `<span class="state-badge ${map[s]||'state-default'}">${s||'UNKNOWN'}</span>`;
 }
 
-function protoBadge(proto) {
-  const cls = ['TCP','UDP'].includes(proto) ? `proto-${proto}` : '';
-  return `<span class="proto-badge ${cls}">${proto || '?'}</span>`;
+function repBadge(rep) {
+  if (!rep) return `<span class="rep-badge rep-unknown">—</span>`;
+  const icons = { CLEAN:'✓', SUSPICIOUS:'⚠', MALICIOUS:'✕' };
+  return `<span class="rep-badge rep-${rep.score}" title="${rep.reasons||''}">${icons[rep.score]||'?'} ${rep.score}</span>`;
+}
+
+function svcBadge(rep) {
+  if (!rep?.service_name) return '';
+  return `<span class="svc-badge">${rep.icon||''} ${rep.service_name}</span>`;
+}
+
+function countryCell(geo) {
+  if (!geo || geo.is_private || geo.country_code === 'XX') return '<span style="color:var(--text3)">Local</span>';
+  const flag = geo.country_code ? String.fromCodePoint(...[...geo.country_code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65)) : '';
+  return `<span class="cell-country"><span class="flag">${flag}</span> ${geo.city ? geo.city + ', ' : ''}${geo.country||'?'}</span>`;
 }
 
 function dnsDot(dns) {
   if (!dns) return '<span class="dns-dot empty"></span>';
-  if (dns.isPrivate)  return '<span class="dns-dot private"></span>';
-  if (!dns.fqdn)      return '<span class="dns-dot empty"></span>';
-  if (dns.fromCache)  return '<span class="dns-dot cached" title="Desde caché"></span>';
-  return '<span class="dns-dot resolved" title="Resuelto en vivo"></span>';
+  if (dns.isPrivate) return '<span class="dns-dot private"></span>';
+  if (!dns.fqdn)     return '<span class="dns-dot empty"></span>';
+  return dns.fromCache
+    ? '<span class="dns-dot cached" title="Desde caché"></span>'
+    : '<span class="dns-dot resolved" title="Resuelto en vivo"></span>';
 }
 
-function getNestedValue(obj, key) {
-  return key.split('.').reduce((o, k) => o?.[k], obj);
-}
-
-// ── Fetch helpers ─────────────────────────────────────────────
-
-async function apiFetch(path) {
-  const res = await fetch(`${API}${path}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
-}
-
-// ── Carga de conexiones activas ───────────────────────────────
-
+// ── Conexiones activas ────────────────────────────────────────
 async function loadConnections() {
   if (state.isLoading) return;
   state.isLoading = true;
-
   setStatus('loading', 'Escaneando...');
-  el.btnRefresh.classList.add('loading');
+  $('btnRefresh').classList.add('loading');
 
   try {
     const data = await apiFetch('/connections');
-
     state.connections = data.connections || [];
-    setStatus('online', `Online · ${data.count} conexiones`);
 
-    // Stats header
     const uniqueIPs = new Set(state.connections.map(c => c.remoteAddr)).size;
-    el.connCount.textContent = data.count;
-    el.ipCount.textContent   = uniqueIPs;
-    el.lastScan.textContent  = formatTime(data.capturedAt);
+    $('connCount').textContent = data.count;
+    $('ipCount').textContent   = uniqueIPs;
+    $('lastScan').textContent  = formatTime(data.capturedAt);
 
-    applyFiltersAndRender();
-
+    setStatus('online', `Online · ${data.count} conexiones`);
+    renderConnectionsTable(applyFilters(state.connections));
+    refreshAlertBadge();
   } catch (err) {
     setStatus('offline', 'Error de conexión');
     showToast('Error al obtener conexiones: ' + err.message, 'error');
-    console.error(err);
   } finally {
     state.isLoading = false;
-    el.btnRefresh.classList.remove('loading');
+    $('btnRefresh').classList.remove('loading');
   }
 }
 
-// ── Filtros y orden ───────────────────────────────────────────
+function applyFilters(connections) {
+  const search  = $('searchInput').value.trim().toLowerCase();
+  const stateF  = $('filterState').value;
+  const repF    = $('filterRep').value;
 
-function applyFiltersAndRender() {
-  const search    = el.searchInput.value.trim().toLowerCase();
-  const stateF    = el.filterState.value;
-  const protoF    = el.filterProto.value;
-
-  let filtered = state.connections.filter(c => {
-    if (stateF && c.state !== stateF)        return false;
-    if (protoF && c.protocol !== protoF)     return false;
+  return connections.filter(c => {
+    if (stateF && c.state !== stateF) return false;
+    if (repF   && c.reputation?.score !== repF) return false;
     if (search) {
-      const haystack = [
-        c.remoteAddr, c.localAddr, c.state,
-        c.protocol, c.processName,
-        c.dns?.fqdn,
-        String(c.remotePort), String(c.localPort),
+      const hay = [
+        c.remoteAddr, c.localAddr, c.state, c.protocol,
+        c.dns?.fqdn, c.geo?.country, c.geo?.city, c.geo?.org,
+        c.reputation?.service_name, String(c.remotePort),
       ].filter(Boolean).join(' ').toLowerCase();
-      if (!haystack.includes(search)) return false;
+      if (!hay.includes(search)) return false;
     }
     return true;
   });
-
-  // Ordenar
-  filtered.sort((a, b) => {
-    const av = getNestedValue(a, state.sortKey) ?? '';
-    const bv = getNestedValue(b, state.sortKey) ?? '';
-    const cmp = String(av).localeCompare(String(bv), undefined, { numeric: true });
-    return state.sortDir === 'asc' ? cmp : -cmp;
-  });
-
-  state.filteredConns = filtered;
-  renderConnectionsTable(filtered);
 }
 
-// ── Render: tabla de conexiones ───────────────────────────────
-
 function renderConnectionsTable(connections) {
+  const body = $('connBody');
   if (!connections.length) {
-    el.connBody.innerHTML = `
-      <tr class="placeholder-row">
-        <td colspan="7">
-          <div class="placeholder">
-            <div class="placeholder-icon">◈</div>
-            <div>Sin conexiones que coincidan con los filtros</div>
-          </div>
-        </td>
-      </tr>`;
+    body.innerHTML = `<tr class="placeholder-row"><td colspan="10"><div class="placeholder"><div class="placeholder-icon">◈</div><div>Sin conexiones que coincidan</div></div></td></tr>`;
     return;
   }
-
-  el.connBody.innerHTML = connections.map(c => {
+  body.innerHTML = connections.map(c => {
     const isPrivate = c.dns?.isPrivate;
-    const fqdnText  = c.dns?.fqdn
+    const fqdnCell  = c.dns?.fqdn
       ? `${dnsDot(c.dns)}<span class="cell-fqdn">${c.dns.fqdn}</span>`
       : `${dnsDot(c.dns)}<span class="cell-fqdn empty">${isPrivate ? 'IP privada' : 'Sin PTR'}</span>`;
-
-    return `
-      <tr class="new-row">
-        <td>${protoBadge(c.protocol)}</td>
-        <td class="cell-local">${c.localAddr}<span class="cell-port">:${c.localPort}</span></td>
-        <td class="${isPrivate ? 'cell-ip private' : 'cell-ip'}">${c.remoteAddr}</td>
-        <td>${fqdnText}</td>
-        <td>${stateBadge(c.state)}</td>
-        <td class="cell-port">${c.remotePort}</td>
-        <td>
-          <button class="btn-action" onclick="openDnsDetail('${c.remoteAddr}')">DNS ↗</button>
-        </td>
-      </tr>`;
+    return `<tr class="new-row">
+      <td>${protoBadge(c.protocol)}</td>
+      <td class="cell-local">${c.localAddr}<span class="cell-port">:${c.localPort}</span></td>
+      <td class="${isPrivate ? 'cell-ip private' : 'cell-ip'}">${c.remoteAddr}</td>
+      <td>${fqdnCell}</td>
+      <td>${svcBadge(c.reputation)}</td>
+      <td>${countryCell(c.geo)}</td>
+      <td>${repBadge(c.reputation)}</td>
+      <td>${stateBadge(c.state)}</td>
+      <td class="cell-port">${c.remotePort}</td>
+      <td><button class="btn-action" onclick="openDetail('${c.remoteAddr}')">+ INFO</button></td>
+    </tr>`;
   }).join('');
 }
 
-// ── Modal de detalle DNS ──────────────────────────────────────
+// ── Mapa ──────────────────────────────────────────────────────
+function initMap() {
+  if (state.map) return;
+  state.map = L.map('geoMap', { zoomControl: true }).setView([20, 0], 2);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© OpenStreetMap contributors',
+    maxZoom: 18,
+  }).addTo(state.map);
+}
 
-async function openDnsDetail(ip) {
-  el.modalBody.innerHTML = `<div class="placeholder" style="padding:20px 0"><div class="placeholder-icon">◈</div><div>Resolviendo ${ip}...</div></div>`;
-  el.dnsModal.classList.remove('hidden');
-
+async function loadMapData() {
+  initMap();
   try {
-    const data = await apiFetch(`/resolve/${encodeURIComponent(ip)}`);
-    el.modalBody.innerHTML = `
-      <div class="dns-row"><span class="dns-key">IP</span>        <span class="dns-value highlight">${data.ip}</span></div>
-      <div class="dns-row"><span class="dns-key">FQDN</span>      <span class="dns-value ${data.fqdn ? 'green' : ''}">${data.fqdn || '— Sin registro PTR —'}</span></div>
-      <div class="dns-row"><span class="dns-key">IP Privada</span><span class="dns-value">${data.isPrivate ? '✔ Sí (RFC 1918)' : '✘ No (pública)'}</span></div>
-      <div class="dns-row"><span class="dns-key">Desde caché</span><span class="dns-value">${data.fromCache ? `✔ Sí (hace ${data.ageSeconds}s)` : '✘ Consultado ahora'}</span></div>
-      <div style="margin-top:14px; display:flex; gap:8px;">
-        <button class="btn-action" onclick="forceRefreshDns('${ip}')">↻ Forzar re-consulta</button>
-        <button class="btn-action" onclick="copyToClipboard('${ip}')">⎘ Copiar IP</button>
-      </div>
-    `;
+    const data = await apiFetch('/map/data');
+
+    // Limpiar marcadores anteriores
+    state.mapMarkers.forEach(m => m.remove());
+    state.mapMarkers = [];
+
+    const scoreColors = { MALICIOUS: '#ff4d6a', SUSPICIOUS: '#ffd166', CLEAN: '#39ff8f', default: '#718096' };
+
+    for (const p of data.points) {
+      if (!p.lat || !p.lon) continue;
+      const color = scoreColors[p.score] || scoreColors.default;
+
+      const marker = L.circleMarker([p.lat, p.lon], {
+        radius: Math.min(6 + (p.connection_count || 1), 14),
+        fillColor: color, color: color,
+        weight: 1, opacity: 0.9, fillOpacity: 0.7,
+      });
+
+      marker.bindPopup(`
+        <div style="min-width:200px">
+          <div style="color:${color};font-weight:700;margin-bottom:8px">${p.ip}</div>
+          <div><b>País:</b> ${p.city ? p.city + ', ' : ''}${p.country || '?'}</div>
+          <div><b>ISP:</b> ${p.isp || p.org || '—'}</div>
+          ${p.service_name ? `<div><b>Servicio:</b> ${p.service_name}</div>` : ''}
+          <div><b>Reputación:</b> <span style="color:${color}">${p.score || 'DESCONOCIDA'}</span></div>
+          <div><b>Conexiones:</b> ${p.connection_count || 0}</div>
+          <div><b>Última vez:</b> ${formatDateTime(p.last_seen)}</div>
+          <div style="margin-top:8px">
+            <button onclick="openDetail('${p.ip}')" style="background:none;border:1px solid #4a6272;color:#c9d8e8;font-size:.7rem;padding:3px 8px;border-radius:3px;cursor:pointer">+ Detalle</button>
+          </div>
+        </div>
+      `);
+
+      marker.addTo(state.map);
+      state.mapMarkers.push(marker);
+    }
+
+    showToast(`Mapa actualizado: ${data.count} IPs geolocalizadas`, 'success');
   } catch (err) {
-    el.modalBody.innerHTML = `<div style="color:var(--red);font-size:.78rem;padding:12px 0">Error: ${err.message}</div>`;
+    showToast('Error cargando mapa: ' + err.message, 'error');
   }
 }
 
-async function forceRefreshDns(ip) {
-  el.modalBody.innerHTML = `<div class="placeholder" style="padding:20px 0"><div>Re-consultando DNS...</div></div>`;
+// ── Alertas ───────────────────────────────────────────────────
+async function loadAlerts() {
+  const onlyUnread = $('filterUnread').checked;
   try {
-    await apiFetch(`/resolve/${encodeURIComponent(ip)}?force=1`);
-    await openDnsDetail(ip);
-    showToast('Caché DNS invalidada y actualizada', 'success');
+    const data = await apiFetch(`/alerts${onlyUnread ? '?unread=1' : ''}`);
+    renderAlerts(data.alerts, data.summary);
+  } catch (err) {
+    showToast('Error cargando alertas: ' + err.message, 'error');
+  }
+}
+
+function renderAlerts(alerts, summary) {
+  if (summary) {
+    $('alertSummaryText').textContent =
+      `Total: ${summary.total} | Sin leer: ${summary.unread} | Critical: ${summary.critical} | High: ${summary.high}`;
+  }
+
+  if (!alerts?.length) {
+    $('alertsBody').innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Sin alertas registradas</div></div></td></tr>`;
+    return;
+  }
+
+  $('alertsBody').innerHTML = alerts.map(a => {
+    const sevCls = `sev-${a.severity}`;
+    const rowCls = a.acknowledged ? '' : 'alert-row-unread';
+    return `<tr class="${rowCls}">
+      <td style="color:var(--text3);font-size:.7rem">${formatDateTime(a.created_at)}</td>
+      <td><span class="severity-badge ${sevCls}">${a.severity.toUpperCase()}</span></td>
+      <td class="cell-ip">${a.ip}</td>
+      <td style="color:var(--text2);font-size:.72rem">${a.rule}</td>
+      <td style="font-size:.72rem;color:var(--text)">${a.details || '—'}</td>
+      <td>
+        ${!a.acknowledged
+          ? `<button class="btn-action" onclick="acknowledgeAlert(${a.id})">✓ Leída</button>`
+          : `<span style="color:var(--text3);font-size:.65rem">leída</span>`}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+async function refreshAlertBadge() {
+  try {
+    const data    = await apiFetch('/stats');
+    const unread  = data.alerts?.unread || 0;
+    const badge   = $('alertBadge');
+    const pill    = $('alertPill');
+    $('alertCount').textContent = unread;
+
+    if (unread > 0) {
+      badge.textContent = unread > 99 ? '99+' : unread;
+      badge.classList.remove('hidden');
+      pill.classList.add('has-alerts');
+    } else {
+      badge.classList.add('hidden');
+      pill.classList.remove('has-alerts');
+    }
+  } catch {}
+}
+
+async function acknowledgeAlert(id) {
+  try {
+    await fetch(`${API}/alerts/${id}/acknowledge`, { method: 'POST' });
+    loadAlerts();
+    refreshAlertBadge();
+    showToast('Alerta marcada como leída', 'success');
   } catch (err) {
     showToast('Error: ' + err.message, 'error');
   }
 }
 
-function copyToClipboard(text) {
-  navigator.clipboard.writeText(text).then(() => showToast('IP copiada al portapapeles', 'info'));
+async function acknowledgeAll() {
+  try {
+    await fetch(`${API}/alerts/acknowledge-all`, { method: 'POST' });
+    loadAlerts();
+    refreshAlertBadge();
+    showToast('Todas las alertas marcadas como leídas', 'success');
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  }
 }
 
-// ── Tab: Historial ────────────────────────────────────────────
+// ── Modal detalle IP ──────────────────────────────────────────
+async function openDetail(ip) {
+  $('modalBody').innerHTML = `<div class="placeholder" style="padding:20px 0"><div class="placeholder-icon">◈</div><div>Consultando ${ip}...</div></div>`;
+  $('dnsModal').classList.remove('hidden');
 
+  try {
+    const d = await apiFetch(`/resolve/${encodeURIComponent(ip)}`);
+    const g = d.geo;
+    const r = d.reputation;
+    const flag = g?.country_code
+      ? String.fromCodePoint(...[...g.country_code.toUpperCase()].map(c => 0x1F1E6 + c.charCodeAt(0) - 65))
+      : '';
+
+    $('modalBody').innerHTML = `
+      <div style="display:grid;gap:0">
+        <div class="dns-row"><span class="dns-key">IP</span>           <span class="dns-value highlight">${ip}</span></div>
+        <div class="dns-row"><span class="dns-key">FQDN</span>         <span class="dns-value ${d.dns?.fqdn ? 'green' : ''}">${d.dns?.fqdn || '— Sin PTR —'}</span></div>
+        <div class="dns-row"><span class="dns-key">IP Privada</span>   <span class="dns-value">${d.dns?.isPrivate ? '✔ Sí (RFC 1918)' : '✘ No'}</span></div>
+        ${g && !g.is_private ? `
+        <div class="dns-row"><span class="dns-key">País</span>         <span class="dns-value">${flag} ${g.country || '?'}</span></div>
+        <div class="dns-row"><span class="dns-key">Ciudad</span>        <span class="dns-value">${g.city || '?'}, ${g.region || ''}</span></div>
+        <div class="dns-row"><span class="dns-key">ISP</span>          <span class="dns-value">${g.isp || '?'}</span></div>
+        <div class="dns-row"><span class="dns-key">Organización</span> <span class="dns-value">${g.org || '?'}</span></div>
+        <div class="dns-row"><span class="dns-key">ASN</span>          <span class="dns-value">${g.as_number || '?'}</span></div>
+        <div class="dns-row"><span class="dns-key">Proxy/VPN</span>    <span class="dns-value">${g.is_proxy ? '⚠ Sí' : '✓ No'}</span></div>
+        <div class="dns-row"><span class="dns-key">Hosting/DC</span>   <span class="dns-value">${g.is_hosting ? '⚠ Sí' : '✓ No'}</span></div>
+        ` : ''}
+        ${r ? `
+        <div class="dns-row"><span class="dns-key">Reputación</span>   <span class="dns-value">${repBadge(r)}</span></div>
+        <div class="dns-row"><span class="dns-key">Servicio</span>     <span class="dns-value">${r.service_name ? `${r.icon || ''} ${r.service_name} (${r.service_type})` : '— Desconocido —'}</span></div>
+        ${r.reasons ? `<div class="dns-row"><span class="dns-key">Razones</span> <span class="dns-value" style="color:var(--yellow)">${r.reasons}</span></div>` : ''}
+        ` : ''}
+      </div>
+      <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn-action" onclick="forceRefresh('${ip}')">↻ Forzar re-consulta</button>
+        <button class="btn-action" onclick="navigator.clipboard.writeText('${ip}').then(()=>showToast('IP copiada','info'))">⎘ Copiar IP</button>
+      </div>`;
+  } catch (err) {
+    $('modalBody').innerHTML = `<div style="color:var(--red);padding:12px 0;font-size:.78rem">Error: ${err.message}</div>`;
+  }
+}
+
+async function forceRefresh(ip) {
+  $('modalBody').innerHTML = `<div class="placeholder" style="padding:20px 0"><div>Re-consultando...</div></div>`;
+  await fetch(`${API}/cache/dns/${encodeURIComponent(ip)}`, { method: 'DELETE' });
+  await openDetail(ip);
+  showToast('Caché invalidada y actualizada', 'success');
+}
+
+// ── Historial ─────────────────────────────────────────────────
 async function loadHistory() {
-  const ip    = el.historyIP.value.trim() || null;
-  const since = el.historySince.value ? new Date(el.historySince.value).toISOString() : null;
-
-  let url = `/history?limit=200`;
+  const ip    = $('historyIP').value.trim() || null;
+  const since = $('historySince').value ? new Date($('historySince').value).toISOString() : null;
+  let   url   = '/history?limit=200';
   if (ip)    url += `&ip=${encodeURIComponent(ip)}`;
   if (since) url += `&since=${encodeURIComponent(since)}`;
 
-  el.histBody.innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div class="placeholder-icon">◈</div><div>Cargando...</div></div></td></tr>`;
-
+  $('histBody').innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div class="placeholder-icon">◈</div><div>Cargando...</div></div></td></tr>`;
   try {
     const data = await apiFetch(url);
-
     if (!data.records?.length) {
-      el.histBody.innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Sin registros encontrados</div></div></td></tr>`;
+      $('histBody').innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Sin registros</div></div></td></tr>`;
       return;
     }
-
-    el.histBody.innerHTML = data.records.map(r => `
+    $('histBody').innerHTML = data.records.map(r => `
       <tr>
         <td style="color:var(--text3);font-size:.7rem">${formatDateTime(r.captured_at)}</td>
         <td>${protoBadge(r.protocol)}</td>
         <td class="cell-local">${r.local_addr}:${r.local_port}</td>
         <td class="cell-ip">${r.remote_addr}<span class="cell-port">:${r.remote_port}</span></td>
         <td>${stateBadge(r.state)}</td>
-        <td style="color:var(--text3)">${r.pid || '—'}</td>
+        <td style="color:var(--text3)">${r.pid||'—'}</td>
       </tr>`).join('');
-
     showToast(`${data.records.length} registros cargados`, 'success');
-  } catch (err) {
-    showToast('Error cargando historial: ' + err.message, 'error');
-  }
+  } catch (err) { showToast('Error: ' + err.message, 'error'); }
 }
 
-// ── Tab: IPs únicas ───────────────────────────────────────────
-
+// ── IPs únicas ────────────────────────────────────────────────
 async function loadUniqueIPs() {
-  el.ipsBody.innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div class="placeholder-icon">◈</div><div>Cargando IPs únicas...</div></div></td></tr>`;
-
+  $('ipsBody').innerHTML = `<tr class="placeholder-row"><td colspan="8"><div class="placeholder"><div class="placeholder-icon">◈</div><div>Cargando...</div></div></td></tr>`;
   try {
     const data = await apiFetch('/history/ips');
-
     if (!data.ips?.length) {
-      el.ipsBody.innerHTML = `<tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Sin IPs en historial aún</div></div></td></tr>`;
+      $('ipsBody').innerHTML = `<tr class="placeholder-row"><td colspan="8"><div class="placeholder"><div>Sin IPs en historial</div></div></td></tr>`;
       return;
     }
-
-    el.ipsBody.innerHTML = data.ips.map(r => `
+    $('ipsBody').innerHTML = data.ips.map(r => `
       <tr>
         <td class="${r.isPrivate ? 'cell-ip private' : 'cell-ip'}">${r.remote_addr}</td>
         <td>${r.fqdn ? `<span class="cell-fqdn">${r.fqdn}</span>` : '<span class="cell-fqdn empty">—</span>'}</td>
+        <td>${svcBadge(r.reputation)}</td>
+        <td>${countryCell(r.geo)}</td>
+        <td>${repBadge(r.reputation)}</td>
         <td style="color:var(--yellow);text-align:center">${r.seen_count}</td>
         <td style="color:var(--text3);font-size:.7rem">${formatDateTime(r.last_seen)}</td>
-        <td><span class="state-badge ${r.isPrivate ? 'state-LISTEN' : 'state-default'}">${r.isPrivate ? 'PRIVADA' : 'PÚBLICA'}</span></td>
-        <td><button class="btn-action" onclick="openDnsDetail('${r.remote_addr}')">DNS ↗</button></td>
+        <td><button class="btn-action" onclick="openDetail('${r.remote_addr}')">+ INFO</button></td>
       </tr>`).join('');
-  } catch (err) {
-    showToast('Error cargando IPs: ' + err.message, 'error');
-  }
-}
-
-// ── Auto-refresh ──────────────────────────────────────────────
-
-function startAutoRefresh() {
-  stopAutoRefresh();
-  if (!el.autoRefresh.checked) return;
-  const interval = parseInt(el.refreshInterval.value, 10);
-  state.refreshTimer = setInterval(loadConnections, interval);
-}
-
-function stopAutoRefresh() {
-  clearInterval(state.refreshTimer);
-  state.refreshTimer = null;
-}
-
-// ── Sorting en headers ────────────────────────────────────────
-
-function setupSorting() {
-  document.querySelectorAll('.conn-table thead th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      if (state.sortKey === key) {
-        state.sortDir = state.sortDir === 'asc' ? 'desc' : 'asc';
-      } else {
-        state.sortKey = key;
-        state.sortDir = 'asc';
-      }
-      document.querySelectorAll('.conn-table thead th').forEach(h => h.classList.remove('sorted'));
-      th.classList.add('sorted');
-      applyFiltersAndRender();
-    });
-  });
+  } catch (err) { showToast('Error: ' + err.message, 'error'); }
 }
 
 // ── Tabs ──────────────────────────────────────────────────────
-
-function setupTabs() {
-  document.querySelectorAll('.tab').forEach(btn => {
-    btn.addEventListener('click', () => {
-      const tab = btn.dataset.tab;
-      state.activeTab = tab;
-
-      document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
-      document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-
-      btn.classList.add('active');
-      $(`tab-${tab}`).classList.add('active');
-
-      // Cargar datos al cambiar de tab
-      if (tab === 'history') loadHistory();
-      if (tab === 'ips')     loadUniqueIPs();
-    });
-  });
+function switchTab(tabName) {
+  state.activeTab = tabName;
+  document.querySelectorAll('.tab').forEach(b => b.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  document.querySelector(`.tab[data-tab="${tabName}"]`)?.classList.add('active');
+  document.getElementById(`tab-${tabName}`)?.classList.add('active');
+  if (tabName === 'map')     loadMapData();
+  if (tabName === 'alerts')  loadAlerts();
+  if (tabName === 'history') {}
+  if (tabName === 'ips')     loadUniqueIPs();
 }
 
-// ── Event listeners ───────────────────────────────────────────
-
-function setupListeners() {
-  el.btnRefresh.addEventListener('click', loadConnections);
-  el.btnHistory.addEventListener('click', loadHistory);
-
-  el.searchInput.addEventListener('input', applyFiltersAndRender);
-  el.filterState.addEventListener('change', applyFiltersAndRender);
-  el.filterProto.addEventListener('change', applyFiltersAndRender);
-
-  el.autoRefresh.addEventListener('change', () => {
-    if (el.autoRefresh.checked) startAutoRefresh();
-    else stopAutoRefresh();
-  });
-  el.refreshInterval.addEventListener('change', startAutoRefresh);
-
-  el.modalClose.addEventListener('click', () => el.dnsModal.classList.add('hidden'));
-  el.dnsModal.addEventListener('click', e => {
-    if (e.target === el.dnsModal) el.dnsModal.classList.add('hidden');
-  });
-
-  document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') el.dnsModal.classList.add('hidden');
-    if (e.key === 'F5') { e.preventDefault(); loadConnections(); }
-  });
+// ── Auto-refresh ──────────────────────────────────────────────
+function startAutoRefresh() {
+  clearInterval(state.refreshTimer);
+  if (!$('autoRefresh').checked) return;
+  const ms = parseInt($('refreshInterval').value, 10);
+  state.refreshTimer = setInterval(loadConnections, ms);
 }
 
 // ── Init ──────────────────────────────────────────────────────
-
 function init() {
-  setupTabs();
-  setupSorting();
-  setupListeners();
+  // Tabs
+  document.querySelectorAll('.tab').forEach(btn => {
+    btn.addEventListener('click', () => switchTab(btn.dataset.tab));
+  });
+
+  // Filtros
+  $('searchInput').addEventListener('input',   () => renderConnectionsTable(applyFilters(state.connections)));
+  $('filterState').addEventListener('change',  () => renderConnectionsTable(applyFilters(state.connections)));
+  $('filterRep').addEventListener('change',    () => renderConnectionsTable(applyFilters(state.connections)));
+  $('autoRefresh').addEventListener('change',  startAutoRefresh);
+  $('refreshInterval').addEventListener('change', startAutoRefresh);
+  $('btnRefresh').addEventListener('click',    loadConnections);
+  $('btnHistory').addEventListener('click',    loadHistory);
+  $('btnAckAll').addEventListener('click',     acknowledgeAll);
+  $('filterUnread').addEventListener('change', loadAlerts);
+
+  // Modal
+  $('modalClose').addEventListener('click', () => $('dnsModal').classList.add('hidden'));
+  $('dnsModal').addEventListener('click',   e => { if (e.target === $('dnsModal')) $('dnsModal').classList.add('hidden'); });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') $('dnsModal').classList.add('hidden');
+    if (e.key === 'F5') { e.preventDefault(); loadConnections(); }
+  });
+
   loadConnections();
   startAutoRefresh();
-  console.log('[NetWatch] Frontend iniciado ✓');
+  console.log('[NetWatch] v2.0 iniciado');
 }
 
 document.addEventListener('DOMContentLoaded', init);
