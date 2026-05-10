@@ -1,0 +1,34 @@
+# .github/dependabot.yml
+# Dependabot: actualiza dependencias npm automáticamente
+# Crea PRs cuando hay nuevas versiones o vulnerabilidades conocidas
+
+version: 2
+updates:
+
+  # Dependencias npm
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "javiertapiachile"   # <- reemplaza con tu usuario de GitHub
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      # Agrupa actualizaciones menores para no saturar de PRs
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"

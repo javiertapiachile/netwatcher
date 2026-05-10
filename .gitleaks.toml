@@ -1,0 +1,50 @@
+# .gitleaks.toml
+# Configuración de GitLeaks para detección de secretos
+# Documentación: https://github.com/gitleaks/gitleaks
+
+title = "NetWatch - GitLeaks Config"
+
+[extend]
+  # Usar reglas base de GitLeaks
+  useDefault = true
+
+# Reglas adicionales específicas para NetWatch
+[[rules]]
+  id          = "netwatch-api-key"
+  description = "NetWatch API Key genérica"
+  regex       = '''(?i)(api[_-]?key|apikey|api[_-]?token)\s*[=:]\s*['\"]?[A-Za-z0-9_\-]{20,}['\"]?'''
+  tags        = ["api-key", "netwatch"]
+
+[[rules]]
+  id          = "abuseipdb-key"
+  description = "AbuseIPDB API Key"
+  regex       = '''(?i)abuseipdb[_-]?api[_-]?key\s*[=:]\s*['\"]?[A-Za-z0-9]{80}['\"]?'''
+  tags        = ["api-key", "abuseipdb"]
+
+[[rules]]
+  id          = "sqlite-path-with-credentials"
+  description = "SQLite connection string con credenciales"
+  regex       = '''sqlite:\/\/[^@\s]+:[^@\s]+@'''
+  tags        = ["database", "credentials"]
+
+# Archivos y rutas a ignorar
+[allowlist]
+  description = "Archivos legítimos a ignorar"
+  paths = [
+    '''.env\.example''',      # plantilla sin valores reales
+    '''node_modules''',        # dependencias
+    '''\.git''',               # git interno
+    '''data/.*\.db''',         # base de datos binaria
+    '''CHANGELOG\.md''',       # puede contener ejemplos
+    '''README\.md''',          # puede contener ejemplos de código
+  ]
+  # Commits de inicialización del proyecto (sin secretos reales)
+  commits = []
+
+  # Regexes de falsos positivos conocidos
+  regexes = [
+    '''NETWATCH_BLOCK_''',    # prefijo de reglas de firewall
+    '''example\.com''',       # dominios de ejemplo
+    '''your-token-here''',    # placeholders obvios
+    '''TuUsuario''',          # placeholders de documentación
+  ]
