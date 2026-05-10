@@ -12,7 +12,7 @@ const app  = express();
 const PORT = process.env.PORT || 3000;
 const HOST = process.env.HOST || '127.0.0.1';
 
-app.use(cors({ origin: [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`], methods: ['GET','POST','DELETE'] }));
+app.use(cors({ origin: [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`], methods: ['GET','POST','DELETE','PUT'] }));
 app.use(express.json());
 app.use((req, _res, next) => { console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`); next(); });
 

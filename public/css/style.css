@@ -662,3 +662,123 @@ body {
 #alertPill { transition: border-color 0.3s; }
 #alertPill.has-alerts { border-color: var(--red); }
 #alertPill.has-alerts .pill-value { color: var(--red); }
+
+/* ── Admin warning ───────────────────────────────────────────── */
+.admin-warning {
+  background: rgba(255,159,64,0.12);
+  border-bottom: 1px solid rgba(255,159,64,0.4);
+  color: var(--orange);
+  font-size: 0.78rem;
+  padding: 8px 24px;
+  text-align: center;
+}
+.admin-warning code {
+  background: rgba(255,159,64,0.15);
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--font-mono);
+}
+.admin-warning.hidden { display: none; }
+
+/* ── Mapa corregido ──────────────────────────────────────────── */
+#geoMap {
+  height: 500px;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+}
+
+/* ── Botón de bloqueo ────────────────────────────────────────── */
+.btn-block {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(255,77,106,0.08);
+  border: 1px solid rgba(255,77,106,0.4);
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  letter-spacing: 0.5px;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+.btn-block:hover { background: rgba(255,77,106,0.18); box-shadow: 0 0 8px rgba(255,77,106,0.3); }
+.btn-block:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-block.already-blocked { background: rgba(74,98,114,0.15); border-color: var(--border); color: var(--text3); }
+
+.btn-unblock {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(57,255,143,0.08);
+  border: 1px solid rgba(57,255,143,0.3);
+  color: var(--green);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.btn-unblock:hover { background: rgba(57,255,143,0.15); }
+
+/* ── Tab de bloqueadas ───────────────────────────────────────── */
+.blocked-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border);
+}
+.blocked-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text3);
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 1.5px;
+  padding: 9px 16px;
+  cursor: pointer;
+  transition: color 0.2s, border-color 0.2s;
+}
+.blocked-tab:hover { color: var(--text2); }
+.blocked-tab.active { color: var(--orange); border-bottom-color: var(--orange); }
+
+.status-active   { color: var(--red);    font-size: .68rem; font-weight:700; }
+.status-reverted { color: var(--green);  font-size: .68rem; font-weight:700; }
+
+/* Stat pill naranja para bloqueadas */
+#blockedPill .pill-value { color: var(--orange); }
+
+/* ── Confirm block modal body ────────────────────────────────── */
+.block-confirm-grid { display:grid; gap:0; margin-bottom:16px; }
+.block-confirm-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:4px; }
+.btn-confirm-block {
+  background: rgba(255,77,106,0.15);
+  border: 1px solid var(--red);
+  color: var(--red);
+  font-family: var(--font-mono);
+  font-size: .75rem;
+  font-weight: 700;
+  padding: 7px 18px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background .2s;
+}
+.btn-confirm-block:hover { background: rgba(255,77,106,0.28); }
+.btn-cancel {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text3);
+  font-family: var(--font-mono);
+  font-size: .75rem;
+  padding: 7px 18px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background .2s;
+}
+.btn-cancel:hover { background: var(--bg4); }

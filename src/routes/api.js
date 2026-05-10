@@ -214,3 +214,47 @@ router.get('/map/data', async (req, res) => {
 });
 
 module.exports = router;
+
+// ── Firewall / Bloqueo ────────────────────────────────────────
+const firewallSvc = require('../services/firewall.service');
+
+// GET /api/v1/blocked — lista de IPs bloqueadas
+router.get('/blocked', async (req, res) => {
+  try {
+    const status  = req.query.status || null; // 'active' | 'reverted' | null
+    const records = await firewallSvc.getBlockedIPs({ status });
+    res.json({ ok: true, count: records.length, records });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/v1/block — bloquear una conexión
+router.post('/block', async (req, res) => {
+  const { ip, port, pid } = req.body;
+  if (!ip) return res.status(400).json({ ok: false, error: 'IP requerida' });
+  try {
+    const result = await firewallSvc.blockConnection({ ip, port, pid });
+    if (!result.ok) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// POST /api/v1/unblock/:id — rollback de bloqueo
+router.post('/unblock/:id', async (req, res) => {
+  try {
+    const result = await firewallSvc.unblockConnection(parseInt(req.params.id));
+    if (!result.ok) return res.status(400).json(result);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
+  }
+});
+
+// GET /api/v1/admin-check — verifica privilegios de administrador
+router.get('/admin-check', (_req, res) => {
+  const isAdmin = firewallSvc.checkAdminPrivileges();
+  res.json({ ok: true, isAdmin });
+});

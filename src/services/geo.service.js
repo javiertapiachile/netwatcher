@@ -1,89 +1,144 @@
 // src/services/geo.service.js
-// Geolocalización de IPs via ip-api.com (gratis, sin API key)
-// Límite: 45 req/min — manejado con caché SQLite
+// Geolocalización con HTTPS, fallback automático y filtro IPv6 completo
 
 const fetch  = require('node-fetch');
 const { db } = require('../db/database');
 
-const GEO_TTL    = 60 * 60 * 24; // 24 horas en caché
-const BATCH_SIZE = 100;           // ip-api soporta batch de hasta 100 IPs
-const API_URL    = 'http://ip-api.com/batch';
+const GEO_TTL = 60 * 60 * 24;
 
-const PRIVATE_RANGES = [
-  /^10\./, /^172\.(1[6-9]|2\d|3[01])\./, /^192\.168\./,
-  /^127\./, /^169\.254\./, /^::1$/, /^fe80:/i,
+// ── Detección de IPs privadas (IPv4 + IPv6 completo) ──────────
+const PRIVATE_V4 = [
+  /^10\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^192\.168\./,
+  /^127\./,
+  /^169\.254\./,
+  /^0\./,
+  /^100\.(6[4-9]|[7-9]\d|1([01]\d|2[0-7]))\./,  // RFC 6598 CGNAT
 ];
 
 function isPrivate(ip) {
-  return PRIVATE_RANGES.some(r => r.test(ip));
+  if (!ip || ip === '0.0.0.0' || ip === '*') return true;
+
+  // Limpiar IPv4-mapped IPv6 (::ffff:192.168.1.1 → 192.168.1.1)
+  const mapped = ip.replace(/^::ffff:/i, '');
+  if (mapped !== ip) return isPrivate(mapped);
+
+  // IPv6 privadas / especiales
+  if (ip === '::1') return true;                          // loopback
+  if (ip === '::')  return true;                          // unspecified
+  if (/^fe80:/i.test(ip)) return true;                   // link-local
+  if (/^fc/i.test(ip) || /^fd/i.test(ip)) return true;  // unique local
+  if (/^2001:db8/i.test(ip)) return true;                // documentación
+  if (/^64:ff9b/i.test(ip)) return true;                 // NAT64
+
+  // IPv4 privadas
+  return PRIVATE_V4.some(r => r.test(ip));
 }
 
-/**
- * Obtiene geolocalización de una IP (con caché)
- */
+// ── Proveedor 1: ipwho.is ─────────────────────────────────────
+async function fetchIpwho(ip) {
+  const res  = await fetch(`https://ipwho.is/${ip}`, { timeout: 8000 });
+  const data = await res.json();
+  if (!data.success) throw new Error('ipwho: ' + (data.message || 'failed'));
+  return {
+    country:      data.country            || null,
+    country_code: data.country_code       || null,
+    region:       data.region             || null,
+    city:         data.city               || null,
+    isp:          data.connection?.isp    || null,
+    org:          data.connection?.org    || null,
+    as_number:    data.connection?.asn    ? `AS${data.connection.asn}` : null,
+    lat:          data.latitude           || null,
+    lon:          data.longitude          || null,
+    is_proxy:     data.security?.proxy    ? 1 : 0,
+    is_hosting:   data.security?.hosting  ? 1 : 0,
+  };
+}
+
+// ── Proveedor 2: freeipapi.com ────────────────────────────────
+async function fetchFreeipapi(ip) {
+  const res  = await fetch(`https://freeipapi.com/api/json/${ip}`, { timeout: 8000 });
+  const data = await res.json();
+  if (!data.ipAddress) throw new Error('freeipapi: no data');
+  return {
+    country:      data.countryName  || null,
+    country_code: data.countryCode  || null,
+    region:       data.regionName   || null,
+    city:         data.cityName     || null,
+    isp:          null,
+    org:          null,
+    as_number:    null,
+    lat:          data.latitude     || null,
+    lon:          data.longitude    || null,
+    is_proxy:     0,
+    is_hosting:   0,
+  };
+}
+
+// ── Fetch con fallback ────────────────────────────────────────
+async function fetchGeoData(ip) {
+  const providers = [
+    { name: 'ipwho.is',  fn: () => fetchIpwho(ip) },
+    { name: 'freeipapi', fn: () => fetchFreeipapi(ip) },
+  ];
+  for (const p of providers) {
+    try {
+      const data = await p.fn();
+      console.log(`[geo] ${ip} resuelto via ${p.name}`);
+      return data;
+    } catch (err) {
+      console.warn(`[geo] ${p.name} falló para ${ip}: ${err.message}`);
+    }
+  }
+  return null;
+}
+
+// ── Guardar en caché ──────────────────────────────────────────
+async function saveGeoCache(ip, row) {
+  await db.runAsync(`
+    INSERT INTO geo_cache
+      (ip, country, country_code, region, city, isp, org, as_number, lat, lon, is_proxy, is_hosting)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(ip) DO UPDATE SET
+      country=excluded.country, country_code=excluded.country_code,
+      region=excluded.region,   city=excluded.city,
+      isp=excluded.isp,         org=excluded.org,
+      as_number=excluded.as_number,
+      lat=excluded.lat,         lon=excluded.lon,
+      is_proxy=excluded.is_proxy, is_hosting=excluded.is_hosting,
+      cached_at=datetime('now')
+  `, [ip, row.country, row.country_code, row.region, row.city,
+      row.isp, row.org, row.as_number, row.lat, row.lon,
+      row.is_proxy, row.is_hosting]);
+}
+
+// ── API pública ───────────────────────────────────────────────
 async function getGeo(ip) {
   if (!ip || isPrivate(ip)) {
-    return { ip, country: 'Privada', country_code: 'XX', city: 'Red local', isp: '', is_private: true };
+    return { ip, country:'Red local', country_code:'XX', city:'Privada', is_private:true };
   }
 
-  // 1. Buscar en caché
+  // Caché
   const cached = await db.getAsync('SELECT * FROM geo_cache WHERE ip = ?', [ip]);
   if (cached) {
-    const ageSeconds = (Date.now() - new Date(cached.cached_at + 'Z').getTime()) / 1000;
-    if (ageSeconds < GEO_TTL) return { ...cached, fromCache: true };
+    const age = (Date.now() - new Date(cached.cached_at + 'Z').getTime()) / 1000;
+    if (age < GEO_TTL) return { ...cached, fromCache: true };
   }
 
-  // 2. Consultar ip-api.com
-  try {
-    const res  = await fetch(`http://ip-api.com/json/${ip}?fields=status,country,countryCode,regionName,city,isp,org,as,lat,lon,proxy,hosting`);
-    const data = await res.json();
+  const data = await fetchGeoData(ip);
+  if (!data) return { ip, country:'Sin datos', country_code:null, fromCache:false };
 
-    if (data.status !== 'success') return { ip, country: 'Desconocido', fromCache: false };
-
-    const row = {
-      ip,
-      country:      data.country      || null,
-      country_code: data.countryCode  || null,
-      region:       data.regionName   || null,
-      city:         data.city         || null,
-      isp:          data.isp          || null,
-      org:          data.org          || null,
-      as_number:    data.as           || null,
-      lat:          data.lat          || null,
-      lon:          data.lon          || null,
-      is_proxy:     data.proxy  ? 1 : 0,
-      is_hosting:   data.hosting ? 1 : 0,
-    };
-
-    await db.runAsync(`
-      INSERT INTO geo_cache (ip, country, country_code, region, city, isp, org, as_number, lat, lon, is_proxy, is_hosting)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(ip) DO UPDATE SET
-        country=excluded.country, country_code=excluded.country_code,
-        region=excluded.region, city=excluded.city, isp=excluded.isp,
-        org=excluded.org, as_number=excluded.as_number,
-        lat=excluded.lat, lon=excluded.lon,
-        is_proxy=excluded.is_proxy, is_hosting=excluded.is_hosting,
-        cached_at=datetime('now')
-    `, [row.ip, row.country, row.country_code, row.region, row.city,
-        row.isp, row.org, row.as_number, row.lat, row.lon, row.is_proxy, row.is_hosting]);
-
-    return { ...row, fromCache: false };
-  } catch (err) {
-    console.error('[geo.service] Error:', err.message);
-    return { ip, country: 'Error', fromCache: false };
-  }
+  await saveGeoCache(ip, data);
+  return { ip, ...data, fromCache: false };
 }
 
-/**
- * Geolocaliza múltiples IPs en batch (respeta límite de 45/min)
- */
-async function getGeoMany(ips) {
-  const results  = {};
-  const unique   = [...new Set(ips.filter(ip => ip && !isPrivate(ip)))];
-  const toFetch  = [];
+async function getGeoMany(ips, concurrency = 5) {
+  const results = {};
+  const unique  = [...new Set(ips.filter(ip => ip && !isPrivate(ip)))];
 
-  // Verificar caché para cada IP
+  // Resolver desde caché primero
+  const toFetch = [];
   for (const ip of unique) {
     const cached = await db.getAsync('SELECT * FROM geo_cache WHERE ip = ?', [ip]);
     if (cached) {
@@ -93,64 +148,20 @@ async function getGeoMany(ips) {
     toFetch.push(ip);
   }
 
-  // Batch fetch para las que no están en caché
-  for (let i = 0; i < toFetch.length; i += BATCH_SIZE) {
-    const chunk = toFetch.slice(i, i + BATCH_SIZE);
-    try {
-      const res  = await fetch(API_URL + '?fields=status,query,country,countryCode,regionName,city,isp,org,as,lat,lon,proxy,hosting', {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify(chunk.map(ip => ({ query: ip }))),
-      });
-      const data = await res.json();
-
-      for (const item of data) {
-        if (item.status !== 'success') continue;
-        const row = {
-          ip:           item.query,
-          country:      item.country     || null,
-          country_code: item.countryCode || null,
-          region:       item.regionName  || null,
-          city:         item.city        || null,
-          isp:          item.isp         || null,
-          org:          item.org         || null,
-          as_number:    item.as          || null,
-          lat:          item.lat         || null,
-          lon:          item.lon         || null,
-          is_proxy:     item.proxy  ? 1 : 0,
-          is_hosting:   item.hosting ? 1 : 0,
-        };
-
-        await db.runAsync(`
-          INSERT INTO geo_cache (ip, country, country_code, region, city, isp, org, as_number, lat, lon, is_proxy, is_hosting)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(ip) DO UPDATE SET
-            country=excluded.country, country_code=excluded.country_code,
-            region=excluded.region, city=excluded.city, isp=excluded.isp,
-            org=excluded.org, as_number=excluded.as_number,
-            lat=excluded.lat, lon=excluded.lon,
-            is_proxy=excluded.is_proxy, is_hosting=excluded.is_hosting,
-            cached_at=datetime('now')
-        `, [row.ip, row.country, row.country_code, row.region, row.city,
-            row.isp, row.org, row.as_number, row.lat, row.lon, row.is_proxy, row.is_hosting]);
-
-        results[row.ip] = { ...row, fromCache: false };
-      }
-
-      // Respetar límite de 45 req/min si hay más chunks
-      if (i + BATCH_SIZE < toFetch.length) await new Promise(r => setTimeout(r, 1400));
-
-    } catch (err) {
-      console.error('[geo.service] Batch error:', err.message);
-    }
+  // Fetch en paralelo con límite
+  for (let i = 0; i < toFetch.length; i += concurrency) {
+    const chunk = toFetch.slice(i, i + concurrency);
+    const resolved = await Promise.all(chunk.map(ip => getGeo(ip)));
+    resolved.forEach(r => { if (r) results[r.ip] = r; });
+    if (i + concurrency < toFetch.length) await new Promise(r => setTimeout(r, 300));
   }
 
-  // Agregar IPs privadas
+  // Respuestas para IPs privadas o no resueltas
   for (const ip of ips) {
     if (!results[ip]) {
       results[ip] = isPrivate(ip)
-        ? { ip, country: 'Red local', country_code: 'XX', is_private: true }
-        : { ip, country: 'Desconocido' };
+        ? { ip, country:'Red local', country_code:'XX', is_private:true }
+        : { ip, country:'Sin datos' };
     }
   }
 
