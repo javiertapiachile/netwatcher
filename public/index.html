@@ -6,17 +6,24 @@
   <title>NetWatch — Monitor de Red</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
   <link rel="stylesheet" href="css/style.css" />
 </head>
 <body>
 
-  <!-- Header -->
+  <!-- AVISO ADMIN -->
+  <div id="adminWarning" class="admin-warning hidden">
+    ⚠ NetWatch no está corriendo como Administrador. El bloqueo de firewall no funcionará.
+    Reinicia PowerShell como Administrador y ejecuta <code>npm start</code>.
+  </div>
+
   <header class="header">
     <div class="header-left">
       <div class="logo">
         <span class="logo-icon">◈</span>
         <span class="logo-text">NET<strong>WATCH</strong></span>
-        <span class="logo-version">v1.0</span>
+        <span class="logo-version">v2.1</span>
       </div>
       <div class="status-bar">
         <span class="status-dot" id="statusDot"></span>
@@ -24,13 +31,21 @@
       </div>
     </div>
     <div class="header-right">
-      <div class="stat-pill" id="statConnections">
+      <div class="stat-pill">
         <span class="pill-label">CONEXIONES</span>
         <span class="pill-value" id="connCount">—</span>
       </div>
-      <div class="stat-pill" id="statIPs">
+      <div class="stat-pill">
         <span class="pill-label">IPs ÚNICAS</span>
         <span class="pill-value" id="ipCount">—</span>
+      </div>
+      <div class="stat-pill" id="alertPill" style="cursor:pointer" onclick="switchTab('alerts')">
+        <span class="pill-label">ALERTAS</span>
+        <span class="pill-value" id="alertCount">—</span>
+      </div>
+      <div class="stat-pill" id="blockedPill" style="cursor:pointer" onclick="switchTab('blocked')">
+        <span class="pill-label">BLOQUEADAS</span>
+        <span class="pill-value" id="blockedCount">—</span>
       </div>
       <div class="stat-pill">
         <span class="pill-label">ÚLTIMO SCAN</span>
@@ -39,12 +54,11 @@
     </div>
   </header>
 
-  <!-- Toolbar -->
   <div class="toolbar">
     <div class="toolbar-left">
       <div class="search-wrap">
         <span class="search-icon">⌕</span>
-        <input type="text" id="searchInput" class="search-input" placeholder="Filtrar por IP, FQDN, proceso, estado..." />
+        <input type="text" id="searchInput" class="search-input" placeholder="Filtrar por IP, FQDN, país, servicio..." />
       </div>
       <select id="filterState" class="filter-select">
         <option value="">Todos los estados</option>
@@ -52,12 +66,12 @@
         <option value="TIME_WAIT">TIME_WAIT</option>
         <option value="CLOSE_WAIT">CLOSE_WAIT</option>
         <option value="LISTEN">LISTEN</option>
-        <option value="SYN_SENT">SYN_SENT</option>
       </select>
-      <select id="filterProto" class="filter-select">
-        <option value="">TCP + UDP</option>
-        <option value="TCP">Solo TCP</option>
-        <option value="UDP">Solo UDP</option>
+      <select id="filterRep" class="filter-select">
+        <option value="">Toda reputación</option>
+        <option value="MALICIOUS">MALICIOUS</option>
+        <option value="SUSPICIOUS">SUSPICIOUS</option>
+        <option value="CLEAN">CLEAN</option>
       </select>
     </div>
     <div class="toolbar-right">
@@ -78,43 +92,92 @@
     </div>
   </div>
 
-  <!-- Tabs -->
   <div class="tabs">
     <button class="tab active" data-tab="live">CONEXIONES ACTIVAS</button>
+    <button class="tab" data-tab="map">MAPA GEO</button>
+    <button class="tab" data-tab="alerts">ALERTAS <span id="alertBadge" class="tab-badge hidden">0</span></button>
+    <button class="tab" data-tab="blocked">BLOQUEADAS <span id="blockedBadge" class="tab-badge" style="background:var(--orange)">0</span></button>
     <button class="tab" data-tab="history">HISTORIAL</button>
     <button class="tab" data-tab="ips">IPs VISTAS</button>
   </div>
 
-  <!-- Panel: Conexiones activas -->
+  <!-- CONEXIONES ACTIVAS -->
   <div id="tab-live" class="tab-panel active">
     <div class="table-wrap">
-      <table class="conn-table" id="connTable">
+      <table class="conn-table">
         <thead>
           <tr>
-            <th data-sort="protocol">PROTO</th>
-            <th data-sort="localAddr">LOCAL</th>
-            <th data-sort="remoteAddr">REMOTO</th>
-            <th data-sort="dns.fqdn">FQDN / DNS</th>
-            <th data-sort="state">ESTADO</th>
-            <th data-sort="remotePort">PUERTO</th>
-            <th>ACCIONES</th>
+            <th>PROTO</th><th>LOCAL</th><th>REMOTO</th><th>FQDN</th>
+            <th>SERVICIO</th><th>PAÍS</th><th>REPUTACIÓN</th><th>ESTADO</th>
+            <th>PUERTO</th><th>ACCIONES</th>
           </tr>
         </thead>
         <tbody id="connBody">
-          <tr class="placeholder-row">
-            <td colspan="7">
-              <div class="placeholder">
-                <div class="placeholder-icon">◈</div>
-                <div>Esperando primer scan...</div>
-              </div>
-            </td>
-          </tr>
+          <tr class="placeholder-row"><td colspan="10"><div class="placeholder"><div class="placeholder-icon">◈</div><div>Esperando primer scan...</div></div></td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Panel: Historial -->
+  <!-- MAPA GEO -->
+  <div id="tab-map" class="tab-panel">
+    <div class="map-toolbar">
+      <span style="color:var(--text3);font-size:.75rem">IPs geolocalizadas · CartoDB Dark</span>
+      <button class="btn-refresh" onclick="loadMapData()" style="padding:5px 12px">↻ Actualizar</button>
+    </div>
+    <div id="geoMap"></div>
+    <div class="map-legend">
+      <div class="legend-item"><span class="legend-dot" style="background:var(--green)"></span>Limpia</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--yellow)"></span>Sospechosa</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--red)"></span>Maliciosa</div>
+      <div class="legend-item"><span class="legend-dot" style="background:var(--text3)"></span>Privada</div>
+    </div>
+  </div>
+
+  <!-- ALERTAS -->
+  <div id="tab-alerts" class="tab-panel">
+    <div class="alerts-toolbar">
+      <div style="display:flex;gap:8px;align-items:center">
+        <span id="alertSummaryText" style="color:var(--text3);font-size:.75rem"></span>
+        <button class="btn-refresh" id="btnAckAll" style="padding:5px 12px">✓ Marcar todas leídas</button>
+      </div>
+      <label class="auto-toggle">
+        <input type="checkbox" id="filterUnread" />
+        <span class="toggle-track"><span class="toggle-thumb"></span></span>
+        <span class="toggle-label">SOLO NO LEÍDAS</span>
+      </label>
+    </div>
+    <div class="table-wrap">
+      <table class="conn-table">
+        <thead>
+          <tr><th>TIMESTAMP</th><th>SEVERIDAD</th><th>IP</th><th>REGLA</th><th>DETALLE</th><th>ACCIÓN</th></tr>
+        </thead>
+        <tbody id="alertsBody">
+          <tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Sin alertas registradas</div></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- BLOQUEADAS -->
+  <div id="tab-blocked" class="tab-panel">
+    <div class="blocked-tabs">
+      <button class="blocked-tab active" data-btab="active"   onclick="switchBlockedTab('active')">BLOQUEADAS ACTIVAS</button>
+      <button class="blocked-tab"        data-btab="reverted" onclick="switchBlockedTab('reverted')">HISTORIAL DE BLOQUEOS</button>
+    </div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table class="conn-table">
+        <thead id="blockedHead">
+          <tr><th>IP</th><th>PUERTO</th><th>PID</th><th>REGLA FIREWALL</th><th>BLOQUEADA</th><th>ROLLBACK</th></tr>
+        </thead>
+        <tbody id="blockedBody">
+          <tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Sin IPs bloqueadas actualmente</div></div></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- HISTORIAL -->
   <div id="tab-history" class="tab-panel">
     <div class="history-controls">
       <input type="text" id="historyIP" class="search-input" style="max-width:220px" placeholder="Filtrar por IP remota" />
@@ -122,69 +185,50 @@
       <button class="btn-refresh" id="btnHistory">CARGAR</button>
     </div>
     <div class="table-wrap">
-      <table class="conn-table" id="histTable">
-        <thead>
-          <tr>
-            <th>TIMESTAMP</th>
-            <th>PROTO</th>
-            <th>LOCAL</th>
-            <th>REMOTO</th>
-            <th>ESTADO</th>
-            <th>PID</th>
-          </tr>
-        </thead>
+      <table class="conn-table">
+        <thead><tr><th>TIMESTAMP</th><th>PROTO</th><th>LOCAL</th><th>REMOTO</th><th>ESTADO</th><th>PID</th></tr></thead>
         <tbody id="histBody">
-          <tr class="placeholder-row">
-            <td colspan="6">
-              <div class="placeholder"><div>Carga el historial para ver registros anteriores</div></div>
-            </td>
-          </tr>
+          <tr class="placeholder-row"><td colspan="6"><div class="placeholder"><div>Carga el historial para ver registros</div></div></td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Panel: IPs vistas -->
+  <!-- IPs VISTAS -->
   <div id="tab-ips" class="tab-panel">
     <div class="table-wrap">
-      <table class="conn-table" id="ipsTable">
-        <thead>
-          <tr>
-            <th>IP REMOTA</th>
-            <th>FQDN</th>
-            <th>VECES VISTAS</th>
-            <th>ÚLTIMA VEZ</th>
-            <th>TIPO</th>
-            <th>ACCIONES</th>
-          </tr>
-        </thead>
+      <table class="conn-table">
+        <thead><tr><th>IP REMOTA</th><th>FQDN</th><th>SERVICIO</th><th>PAÍS</th><th>REPUTACIÓN</th><th>VECES</th><th>ÚLTIMA VEZ</th><th>ACCIONES</th></tr></thead>
         <tbody id="ipsBody">
-          <tr class="placeholder-row">
-            <td colspan="6">
-              <div class="placeholder"><div>Cambia a esta pestaña para ver las IPs únicas del historial</div></div>
-            </td>
-          </tr>
+          <tr class="placeholder-row"><td colspan="8"><div class="placeholder"><div>Cambia a esta pestaña para ver las IPs del historial</div></div></td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
-  <!-- Modal DNS detail -->
+  <!-- Modal detalle IP -->
   <div id="dnsModal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <span class="modal-title">◈ Detalle DNS</span>
+        <span class="modal-title">◈ Detalle de IP</span>
         <button class="modal-close" id="modalClose">✕</button>
       </div>
-      <div class="modal-body" id="modalBody">
-        <!-- filled by JS -->
-      </div>
+      <div class="modal-body" id="modalBody"></div>
     </div>
   </div>
 
-  <!-- Toast -->
-  <div id="toast" class="toast hidden"></div>
+  <!-- Modal confirmación bloqueo -->
+  <div id="blockModal" class="modal-overlay hidden">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header" style="color:var(--red)">
+        <span class="modal-title">⚠ Confirmar Bloqueo</span>
+        <button class="modal-close" onclick="document.getElementById('blockModal').classList.add('hidden')">✕</button>
+      </div>
+      <div class="modal-body" id="blockModalBody"></div>
+    </div>
+  </div>
 
+  <div id="toast" class="toast hidden"></div>
   <script src="js/app.js"></script>
 </body>
 </html>
