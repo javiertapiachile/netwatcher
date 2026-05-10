@@ -33,7 +33,7 @@ jobs:
           cache: 'npm'
 
       - name: Instalar dependencias
-        run: npm ci
+        run: npm install
 
       - name: NPM Audit (vulnerabilidades conocidas)
         run: npm audit --audit-level=moderate
@@ -112,7 +112,7 @@ jobs:
           cache: 'npm'
 
       - name: Instalar dependencias
-        run: npm ci
+        run: npm install
 
       - name: Instalar license-checker
         run: npm install -g license-checker
