@@ -1,0 +1,20 @@
+# .github/codeql/codeql-config.yml
+# Configuración personalizada de CodeQL para NetWatch
+
+name: "NetWatch CodeQL Config"
+
+queries:
+  # Suite completa de seguridad + calidad
+  - uses: security-and-quality
+
+query-filters:
+  # Excluir alertas de baja severidad en archivos de test
+  - exclude:
+      tags contain: "correctness"
+      paths:
+        - "**/*.test.js"
+
+paths-ignore:
+  - "node_modules"
+  - "data"
+  - "public/css"  # CSS no tiene vulnerabilidades de código

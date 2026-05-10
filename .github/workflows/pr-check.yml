@@ -1,0 +1,90 @@
+# .github/workflows/pr-check.yml
+# Checks automáticos en cada Pull Request
+# Bloquea el merge si hay problemas de seguridad
+
+name: PR Security Gate
+
+on:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened ]
+
+jobs:
+
+  # Verifica que el PR tenga descripción y título correcto
+  pr-quality:
+    name: PR Quality Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verificar título del PR
+        uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          types: |
+            feat
+            fix
+            chore
+            docs
+            refactor
+            security
+          # Fuerza títulos tipo: "feat: descripción" o "fix: descripción"
+
+  # Bloquea si hay archivos sensibles en el PR
+  sensitive-files:
+    name: Sensitive Files Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verificar archivos prohibidos en el PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const forbidden = [
+              '.env',
+              '*.db',
+              '*.key',
+              '*.pem',
+              '*.p12',
+              'secrets.*',
+              'credentials.*',
+              'config/production.*'
+            ];
+
+            const files = await github.rest.pulls.listFiles({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: context.issue.number,
+            });
+
+            const flagged = files.data.filter(f =>
+              forbidden.some(pattern => {
+                const regex = new RegExp(pattern.replace('*', '.*'));
+                return regex.test(f.filename);
+              })
+            );
+
+            if (flagged.length > 0) {
+              const names = flagged.map(f => f.filename).join(', ');
+              core.setFailed(`Archivos sensibles detectados en el PR: ${names}`);
+            } else {
+              console.log('OK: Sin archivos sensibles en el PR');
+            }
+
+  # Quick security scan solo de los archivos modificados
+  quick-audit:
+    name: Quick Dependency Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+      - run: npm ci
+      - run: npm audit --audit-level=high
+        # Solo falla si hay vulnerabilidades HIGH o CRITICAL
+        # Las moderate se reportan pero no bloquean
+
