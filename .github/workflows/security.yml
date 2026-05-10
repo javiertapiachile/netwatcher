@@ -45,7 +45,7 @@ jobs:
 
       - name: Subir reporte de audit
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: npm-audit-report
           path: npm-audit-report.json
@@ -126,7 +126,7 @@ jobs:
           echo "Todas las licencias son compatibles"
 
       - name: Subir reporte de licencias
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: license-report
           path: license-report.json
