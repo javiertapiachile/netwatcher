@@ -14,7 +14,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout código
+      - name: Checkout codigo
         uses: actions/checkout@v4
 
       - name: Setup Node.js
@@ -32,7 +32,7 @@ jobs:
             Write-Error ".env NO debe estar en el repositorio"
             exit 1
           }
-          Write-Host "OK: .env no está en el repositorio"
+          Write-Host "OK: .env no esta en el repositorio"
 
       - name: Verificar estructura del proyecto
         shell: pwsh
@@ -69,9 +69,9 @@ jobs:
           node --check src/routes/api.js
           node --check src/services/auth.service.js
           node --check src/middleware/auth.middleware.js
-          Write-Host "OK: Sintaxis JavaScript válida"
+          Write-Host "OK: Sintaxis JavaScript valida"
 
-- name: Smoke test - arrancar servidor HTTPS
+      - name: Smoke test - arrancar servidor HTTPS
         shell: pwsh
         env:
           PORT: 3001
