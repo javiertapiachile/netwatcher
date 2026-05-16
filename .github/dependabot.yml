@@ -14,7 +14,7 @@ updates:
       time: "09:00"
     open-pull-requests-limit: 5
     reviewers:
-      - "javiertapiachile"   # <- reemplaza con tu usuario de GitHub
+      - "TuUsuario"   # <- reemplaza con tu usuario de GitHub
     labels:
       - "dependencies"
       - "security"

@@ -481,3 +481,37 @@ function init() {
 }
 
 document.addEventListener('DOMContentLoaded', init);
+
+// ── Fase 3: Auth ──────────────────────────────────────────────
+async function loadUserInfo() {
+  try {
+    const d = await apiFetch('/auth/me'.replace('/api/v1',''));
+    if (d.ok && d.user) {
+      const info = document.getElementById('userInfo');
+      if (info) info.innerHTML = `
+        <span class="user-name">◈ ${d.user.username}</span>
+        <span class="user-role">${d.user.role}${d.user.isMaster?' · master':''}</span>`;
+    }
+  } catch {}
+}
+
+async function logout() {
+  try {
+    await fetch('/auth/logout', { method: 'POST', credentials: 'include' });
+  } catch {}
+  window.location.href = '/login';
+}
+
+// Manejar respuestas 401 globalmente
+const _origApiFetch = apiFetch;
+window.apiFetch = async function(path, opts) {
+  const r = await fetch(`/api/v1${path}`, { ...opts, credentials: 'include' });
+  if (r.status === 401) { window.location.href = '/login'; return; }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+};
+
+// Cargar info de usuario al iniciar
+document.addEventListener('DOMContentLoaded', () => {
+  loadUserInfo();
+});
