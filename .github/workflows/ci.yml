@@ -84,29 +84,25 @@ jobs:
         run: |
           New-Item -ItemType Directory -Force -Path "./data" | Out-Null
 
-          # Iniciar servidor en background
+          # Iniciar servidor en background y capturar PID
           $proc = Start-Process node -ArgumentList "src/server.js" -PassThru -WindowStyle Hidden
+          $pid  = $proc.Id
+          Write-Host "Servidor iniciado con PID: $pid"
 
-          # Esperar que arranque (HTTPS + cert generation toma más tiempo)
-          Start-Sleep -Seconds 12
+          # Esperar que arranque (HTTPS + generacion de cert toma mas tiempo)
+          Start-Sleep -Seconds 15
 
-          try {
-            # Saltarse validación de certificado autofirmado en CI
-            # Usar curl que soporta --insecure nativamente
-            $result = curl.exe --insecure --silent --output /dev/null --write-out "%{http_code}" "https://127.0.0.1:3001/auth/login"
+          # Verificar respuesta usando curl con --insecure (certificado autofirmado)
+          $result = curl.exe --insecure --silent --output NUL --write-out "%{http_code}" "https://127.0.0.1:3001/auth/login"
+          Write-Host "Codigo HTTP recibido: $result"
 
-            if ($result -eq "200") {
-              Write-Host "OK: Servidor HTTPS respondió correctamente (HTTP $result)"
-            } else {
-              Write-Error "Servidor respondió con código inesperado: $result"
-              try { $proc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
-              exit 1
-            }
-          } catch {
-            Write-Error "El servidor no respondió: $_"
-            try { $proc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
+          # Detener servidor sin importar el resultado
+          Get-Process -Id $pid -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+
+          # Evaluar resultado
+          if ($result -eq "200") {
+            Write-Host "OK: Smoke test completado - servidor HTTPS respondio correctamente"
+          } else {
+            Write-Error "Smoke test fallido - codigo HTTP inesperado: $result"
             exit 1
           }
-
-          try { $proc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
-          Write-Host "OK: Smoke test completado"
