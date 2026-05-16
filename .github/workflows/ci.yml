@@ -65,30 +65,28 @@ jobs:
       - name: Verificar sintaxis JavaScript
         run: node --check src/server.js && node --check src/routes/api.js
 
-      - name: Smoke test — arrancar servidor y verificar /stats
+      - name: Smoke test - arrancar servidor HTTPS
         shell: pwsh
         env:
           PORT: 3001
           HOST: 127.0.0.1
           NODE_ENV: test
           DB_PATH: ./data/test.db
+          MASTER_USER: admin
+          MASTER_PASS: testpass123
+          JWT_SECRET: test-secret-for-ci-only
         run: |
-          # Crear directorio data
           New-Item -ItemType Directory -Force -Path "./data" | Out-Null
-          # Iniciar servidor en background
           $proc = Start-Process node -ArgumentList "src/server.js" -PassThru -WindowStyle Hidden
-          # Esperar que arranque
-          Start-Sleep -Seconds 5
-          # Verificar que responde
-          try {
-            $response = Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/v1/stats" -UseBasicParsing -TimeoutSec 10
-            if ($response.StatusCode -eq 200) {
-              Write-Host "OK: Servidor respondió correctamente"
-            }
-          } catch {
-            Write-Error "El servidor no respondió: $_"
-            $proc | Stop-Process -Force
+          $procId = $proc.Id
+          Write-Host "Servidor iniciado con PID: $procId"
+          Start-Sleep -Seconds 15
+          $result = curl.exe --insecure --silent --output NUL --write-out "%{http_code}" "https://127.0.0.1:3001/auth/login"
+          Write-Host "Codigo HTTP recibido: $result"
+          Get-Process -Id $procId -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
+          if ($result -eq "200") {
+            Write-Host "OK: Smoke test completado"
+          } else {
+            Write-Error "Smoke test fallido - codigo: $result"
             exit 1
           }
-          $proc | Stop-Process -Force
-
