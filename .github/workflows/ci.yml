@@ -47,7 +47,11 @@ jobs:
             "src/services/reputation.service.js",
             "src/services/alert.service.js",
             "src/services/firewall.service.js",
+            "src/services/auth.service.js",
+            "src/services/tls.service.js",
+            "src/middleware/auth.middleware.js",
             "public/index.html",
+            "public/auth/login.html",
             ".env.example"
           )
           foreach ($file in $required) {
@@ -63,27 +67,46 @@ jobs:
         run: |
           node --check src/server.js
           node --check src/routes/api.js
+          node --check src/services/auth.service.js
+          node --check src/middleware/auth.middleware.js
           Write-Host "OK: Sintaxis JavaScript válida"
 
-      - name: Smoke test - arrancar servidor
+      - name: Smoke test - arrancar servidor HTTPS
         shell: pwsh
         env:
           PORT: 3001
           HOST: 127.0.0.1
           NODE_ENV: test
           DB_PATH: ./data/test.db
+          MASTER_USER: admin
+          MASTER_PASS: testpass123
+          JWT_SECRET: test-secret-for-ci-only
         run: |
           New-Item -ItemType Directory -Force -Path "./data" | Out-Null
+
+          # Iniciar servidor en background
           $proc = Start-Process node -ArgumentList "src/server.js" -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 8
+
+          # Esperar que arranque (HTTPS + cert generation toma más tiempo)
+          Start-Sleep -Seconds 12
+
           try {
-            $response = Invoke-WebRequest -Uri "http://127.0.0.1:3001/api/v1/stats" -UseBasicParsing -TimeoutSec 15
-            if ($response.StatusCode -eq 200) {
-              Write-Host "OK: Servidor respondió correctamente (HTTP 200)"
+            # Saltarse validación de certificado autofirmado en CI
+            # Usar curl que soporta --insecure nativamente
+            $result = curl.exe --insecure --silent --output /dev/null --write-out "%{http_code}" "https://127.0.0.1:3001/auth/login"
+
+            if ($result -eq "200") {
+              Write-Host "OK: Servidor HTTPS respondió correctamente (HTTP $result)"
+            } else {
+              Write-Error "Servidor respondió con código inesperado: $result"
+              $proc | Stop-Process -Force
+              exit 1
             }
           } catch {
             Write-Error "El servidor no respondió: $_"
             $proc | Stop-Process -Force
             exit 1
           }
+
           $proc | Stop-Process -Force
+          Write-Host "OK: Smoke test completado"
