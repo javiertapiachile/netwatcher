@@ -71,7 +71,7 @@ jobs:
           node --check src/middleware/auth.middleware.js
           Write-Host "OK: Sintaxis JavaScript válida"
 
-      - name: Smoke test - arrancar servidor HTTPS
+- name: Smoke test - arrancar servidor HTTPS
         shell: pwsh
         env:
           PORT: 3001
@@ -83,26 +83,16 @@ jobs:
           JWT_SECRET: test-secret-for-ci-only
         run: |
           New-Item -ItemType Directory -Force -Path "./data" | Out-Null
-
-          # Iniciar servidor en background y capturar PID
           $proc = Start-Process node -ArgumentList "src/server.js" -PassThru -WindowStyle Hidden
-          $pid  = $proc.Id
-          Write-Host "Servidor iniciado con PID: $pid"
-
-          # Esperar que arranque (HTTPS + generacion de cert toma mas tiempo)
+          $procId = $proc.Id
+          Write-Host "Servidor iniciado con PID: $procId"
           Start-Sleep -Seconds 15
-
-          # Verificar respuesta usando curl con --insecure (certificado autofirmado)
           $result = curl.exe --insecure --silent --output NUL --write-out "%{http_code}" "https://127.0.0.1:3001/auth/login"
           Write-Host "Codigo HTTP recibido: $result"
-
-          # Detener servidor sin importar el resultado
-          Get-Process -Id $pid -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-
-          # Evaluar resultado
+          Get-Process -Id $procId -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
           if ($result -eq "200") {
-            Write-Host "OK: Smoke test completado - servidor HTTPS respondio correctamente"
+            Write-Host "OK: Smoke test completado"
           } else {
-            Write-Error "Smoke test fallido - codigo HTTP inesperado: $result"
+            Write-Error "Smoke test fallido - codigo: $result"
             exit 1
           }
