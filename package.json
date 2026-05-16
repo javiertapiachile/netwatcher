@@ -2,6 +2,7 @@
   "name": "netwatch",
   "version": "3.0.0",
   "description": "Network connection monitor with DNS, geo, reputation, L7 inspection and secure access",
+  "license": "MIT",
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
