@@ -99,14 +99,14 @@ jobs:
               Write-Host "OK: Servidor HTTPS respondió correctamente (HTTP $result)"
             } else {
               Write-Error "Servidor respondió con código inesperado: $result"
-              $proc | Stop-Process -Force
+              try { $proc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
               exit 1
             }
           } catch {
             Write-Error "El servidor no respondió: $_"
-            $proc | Stop-Process -Force
+            try { $proc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
             exit 1
           }
 
-          $proc | Stop-Process -Force
+          try { $proc | Stop-Process -Force -ErrorAction SilentlyContinue } catch {}
           Write-Host "OK: Smoke test completado"
