@@ -28,7 +28,14 @@ jobs:
             docs
             refactor
             security
+            build
+            ci
+            test
+            perf
+            style
+            revert
           # Fuerza títulos tipo: "feat: descripción" o "fix: descripción"
+          # Incluye 'build' para que los PRs de Dependabot (build(deps): bump ...) pasen
 
   # Bloquea si hay archivos sensibles en el PR
   sensitive-files:
